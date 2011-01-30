@@ -27,18 +27,26 @@ int world[][] = {
   {1,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
   {1,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
   {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}};
+PImage textures[], dragon;
 PVector position, direction, plane;
 float moveSpeed, rotSpeed, mouseSensitivity;
 boolean keyMap[];
 int center, currentBuffer;
 void setup() {
-  size(300, 300 );
+  size(320, 240);
+  textures = new PImage[5];
+  for(int i = 0; i < textures.length; i++) {
+    textures[i] = loadImage("" + i + ".png");
+    textures[i].loadPixels();
+  }
+  dragon = loadImage("dragon.png");
+  dragon.loadPixels();
   position = new PVector(22, 20);
   direction = new PVector(-1, 0);
   plane = new PVector(0, 0.66);
   moveSpeed = 0.075;
   rotSpeed = 0.1;
-  mouseSensitivity = 1; // only values between 0 and 1 please!
+  mouseSensitivity = 0; // only values between 0 and 1 please!
   keyMap = new boolean[6];
   for(int i = 0; i < keyMap.length; i++)
     keyMap[i] = false;
@@ -61,14 +69,14 @@ void draw() {
       sideDistance.x = (rayPosition.x - mapPosition.x) * deltaDistance.x;
     } else {
       step.x = 1;
-      sideDistance.x = (mapPosition.x + 1 - rayPosition.x) * deltaDistance.x;
+      sideDistance.x = (mapPosition.x + 1.0 - rayPosition.x) * deltaDistance.x;
     }
     if(rayDirection.y < 0) {
       step.y = -1;
       sideDistance.y = (rayPosition.y - mapPosition.y) * deltaDistance.y;
     } else {
       step.y = 1;
-      sideDistance.y = (mapPosition.y + 1 - rayPosition.y) * deltaDistance.y;
+      sideDistance.y = (mapPosition.y + 1.0 - rayPosition.y) * deltaDistance.y;
     }
     boolean hit = false, side = false;
     // This is the meat of the DDA algorithm.
@@ -93,22 +101,47 @@ void draw() {
     int lineHeight = (int) abs(height / wallDistance);
     int drawStart = max(0, -lineHeight / 2 + height / 2 + center);
     int drawEnd = min(height, lineHeight / 2 + height / 2 + center);
-    color wallColor;
-    switch(world[(int) mapPosition.x][(int) mapPosition.y]) {
-      case 1: wallColor = color(255, 0, 0); break;
-      case 2: wallColor = color(0, 255, 0); break;
-      case 3: wallColor = color(0, 0, 255); break;
-      case 4: wallColor = color(255, 255, 0); break;
-      default: wallColor = color(255, 0, 255); break;
-    }
+    int textureId = world[(int) mapPosition.x][(int) mapPosition.y] - 1;
+    float wallPosition;
     if(side)
-      wallColor = color(red(wallColor) / 2, green(wallColor) / 2, blue(wallColor) / 2);
-    for(int y = 0; y < drawStart; y++)
-      pixels[y * width + x] = color(0);
-    for(int y = drawStart; y < drawEnd; y++)
-      pixels[y * width + x] = wallColor;
-    for(int y = drawEnd; y < height; y++)
-      pixels[y * width + x] = color(150, 100, 90);
+      wallPosition = rayPosition.x + ((mapPosition.y - rayPosition.y + (1 - step.y) / 2) / rayDirection.y) * rayDirection.x;
+    else
+      wallPosition = rayPosition.y + ((mapPosition.x - rayPosition.x + (1 - step.x) / 2) / rayDirection.x) * rayDirection.y;
+    wallPosition -= floor(wallPosition);
+    PVector texturePosition = new PVector(wallPosition * 64, 0);
+    if((!side && rayDirection.x > 0) || (side && rayDirection.y < 0)) texturePosition.x = 64 - texturePosition.x - 1;
+    for(int y = drawStart; y < drawEnd; y++) {
+      int d = (int) map(y, -lineHeight / 2 + height / 2 + center, lineHeight / 2 + height / 2 + center, 0, textures[textureId].height - 1);
+      texturePosition.y = d;
+      color textureColor = textures[textureId].pixels[(int) (texturePosition.y * 64 + texturePosition.x)];
+      if(side) textureColor = color(red(textureColor) / 2, green(textureColor) / 2, blue(textureColor) / 2);
+      pixels[y * width + x] = textureColor;
+    }
+    // TODO: Figure out how to correctly map the floor and ceiling texture, so that mouselook can be turned on.
+    PVector texelAtWall;
+    if(!side && rayDirection.x > 0) {
+      texelAtWall = new PVector(mapPosition.x, mapPosition.y + wallPosition);
+    } else if(!side && rayDirection.x < 0) {
+      texelAtWall = new PVector(mapPosition.x + 1.0, mapPosition.y + wallPosition);
+    } else if(side && rayDirection.y > 0) {
+      texelAtWall = new PVector(mapPosition.x + wallPosition, mapPosition.y);
+    } else {
+      texelAtWall = new PVector(mapPosition.x + wallPosition, mapPosition.y + 1.0);
+    } 
+    for(int y = drawEnd + 1; y < height; y++) {
+      float currentDistance = height / (2.0 * y - height);
+      float weight = currentDistance / wallDistance;
+      PVector currentFloor = new PVector(
+        weight * texelAtWall.x + (1.0 - weight) * position.x,
+        weight * texelAtWall.y + (1.0 - weight) * position.y);
+      PVector floorTexture = new PVector(
+        (int) ((currentFloor.x * 64) % 64),
+        (int) ((currentFloor.y * 64) % 64));
+      color floorColor = textures[0].pixels[(int) (64 * floorTexture.y + floorTexture.x)];
+      floorColor = color(red(floorColor) / 1.5, green(floorColor) / 1.5, blue(floorColor) / 1.5);
+      pixels[y * width + x] = floorColor;
+      pixels[(height - y) * width + x] = textures[0].pixels[(int) (64 * floorTexture.y + floorTexture.x)];
+    }
   }
   updatePixels();
   if(keyMap[0]) {
